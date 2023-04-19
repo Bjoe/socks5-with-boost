@@ -128,6 +128,9 @@ target_compile_features(project_options INTERFACE cxx_std_${CMAKE_CXX_STANDARD})
 add_library(myproject::project_options INTERFACE IMPORTED)
 add_library(myproject::project_warnings INTERFACE IMPORTED)
 
+find_package(Boost REQUIRED) # COMPONENTS headers program_options thread log) <- How this can be used in Conan 2.0 ?
+find_package(Microsoft.GSL REQUIRED)
+
 # configure files based on CMake configuration options
 add_subdirectory(configured_files)
 

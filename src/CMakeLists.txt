@@ -1,9 +1,23 @@
 
-add_executable(intro main.cpp)
+add_executable(bs5)
+
+target_sources(bs5
+    PRIVATE
+    main.cpp
+    server.cpp
+    server.hpp
+    session.cpp
+    session.hpp
+)
 target_link_libraries(
-  intro
+  bs5
   PUBLIC project_options project_warnings
+
+  Boost::headers
+  Boost::program_options
+  Boost::log
+  Microsoft.GSL::GSL
 #  PRIVATE CLI11::CLI11 fmt::fmt spdlog::spdlog
 )
 
-target_include_directories(intro PRIVATE "${CMAKE_BINARY_DIR}/configured_files/include")
+target_include_directories(bs5 PRIVATE "${CMAKE_BINARY_DIR}/configured_files/include")
