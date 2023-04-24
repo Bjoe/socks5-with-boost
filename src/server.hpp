@@ -11,6 +11,7 @@ class Server
 {
 public:
     Server(boost::asio::io_context &io_context,
+           int sock_map,
            const boost::asio::ip::tcp::endpoint &socks5Endpoint,
            std::string natAddress,
            std::size_t buffer_size);
@@ -19,6 +20,7 @@ public:
 
 private:
     boost::asio::io_context& io_context_;
+    int sock_map_{};
     boost::asio::ip::tcp::acceptor acceptor_;
     std::size_t buffer_size_;
     std::string nat_address_;

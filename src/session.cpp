@@ -6,6 +6,13 @@
 #include <cstring>
 #include <gsl/gsl>
 #include <boost/log/trivial.hpp>
+#include <stdexcept>
+#include <poll.h>
+#include <errno.h>
+#include <linux/bpf.h>
+extern "C" {
+  #include "sockmap/tbpf.h"
+};
 
 constexpr std::uint8_t SOCKS_VERSION = 0x05;
 constexpr std::uint8_t NO_ACCEPTABLE_METHODS = 0xFF;
@@ -26,12 +33,13 @@ constexpr int DOMAINNAME = 5;
 
 namespace socks5 {
 
-Session::Session(boost::asio::io_context &io_context,
+Session::Session(boost::asio::io_context &io_context, int sock_map,
   std::string natAddress,
   std::shared_ptr<boost::asio::ip::tcp::socket> in_socket,
   SessionId session_id,
   std::size_t buffer_size)
   : io_context_(io_context),
+    sock_map_(sock_map),
     in_socket_(std::move(in_socket)),
     out_socket_(io_context),
     resolver_(io_context),
@@ -414,8 +422,9 @@ void Session::write_socks5_response()
         case 0x01: // CONNECT
         {
           BOOST_LOG_TRIVIAL(info) << "Session id: " << session_id_.id << " SOCKS5 response send. Start tcp ...";
-          read_client_tcp();
-          read_server_tcp();
+          //read_client_tcp();
+          //read_server_tcp();
+          sockmap_relay();
           break;
         }
         case 0x02: // BIND
@@ -691,6 +700,74 @@ void Session::read_server_udp()
         });
 
     });
+}
+
+void Session::sockmap_relay() {
+  int fd = in_socket_->native_handle();
+  int fd_out = out_socket_.native_handle();
+  {
+    /* There is a bug in sockmap which prevents it from
+     * working right when snd buffer is full. Set it to
+     * gigantic value. */
+    int val = 32 * 1024 * 1024;
+    setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &val, sizeof(val));
+  }
+
+  /* [*] Perform ebpf socket magic */
+  /* Add socket to SOCKMAP. Otherwise the ebpf won't work. */
+  int idx = 0;
+  int val = fd;
+  int r = tbpf_map_update_elem(sock_map_, &idx, &val, BPF_ANY);
+  if (r != 0) {
+    if (errno == EOPNOTSUPP) {
+      throw std::logic_error("pushing closed socket to sockmap?");
+    }
+    throw std::logic_error("bpf(MAP_UPDATE_ELEM)");
+  }
+
+  int idx_out = 1;
+  int val_out = fd_out;
+  r = tbpf_map_update_elem(sock_map_, &idx_out, &val_out, BPF_ANY);
+  if (r != 0) {
+    if (errno == EOPNOTSUPP) {
+      throw std::logic_error("pushing closed socket to sockmap?");
+    }
+    throw std::logic_error("bpf(MAP_UPDATE_ELEM)");
+  }
+
+  /* [*] Wait for the socket to close. Let sockmap do the magic. */
+  struct pollfd fds[1]{};
+  fds[0].fd = fd;
+  fds[0].events = POLLRDHUP;
+
+  poll(fds, 1, -1);
+
+  /* Was there a socket error? */
+  {
+    int err;
+    socklen_t err_len = sizeof(err);
+    r = getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &err_len);
+    if (r < 0) {
+      throw std::logic_error("getsockopt()");
+    }
+    errno = err;
+    if (errno) {
+      throw std::logic_error("sockmap fd");
+    }
+  }
+
+  /* Cleanup the entry from sockmap. */
+  idx = 0;
+  r = tbpf_map_delete_elem(sock_map_, &idx);
+  if (r != 0) {
+    if (errno == EINVAL) {
+      std::cerr << "[-] Removing closed sock from sockmap\n";
+    } else {
+      throw std::logic_error("bpf(MAP_DELETE_ELEM, sock_map)");
+    }
+  }
+  close(fd);
+
 }
 
 void Session::read_client_tcp()

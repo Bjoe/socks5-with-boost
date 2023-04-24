@@ -19,6 +19,7 @@ class Session : public std::enable_shared_from_this<Session>
 {
 public:
     Session(boost::asio::io_context& io_context,
+            int sock_map,
             std::string natAddress,
             std::shared_ptr<boost::asio::ip::tcp::socket> in_socket,
             SessionId session_id,
@@ -45,12 +46,14 @@ public:
     void bind_listener();
     void read_bind_client(const std::shared_ptr<boost::asio::ip::tcp::socket> &client_socket);
     void interpret_udp_header();
+    void sockmap_relay();
     void read_client_udp();
     void read_server_udp();
     void read_client_tcp();
     void read_server_tcp();
 
     boost::asio::io_context& io_context_;
+    int sock_map_{};
     std::shared_ptr<boost::asio::ip::tcp::socket> in_socket_{};
     gsl::owner<boost::asio::ip::udp::socket*> in_udp_sock_{};
     gsl::owner<boost::asio::ip::udp::socket*> nat_udp_socket_{};

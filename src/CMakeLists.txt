@@ -8,6 +8,9 @@ target_sources(bs5
     server.hpp
     session.cpp
     session.hpp
+
+    sockmap/tbpf.c
+    sockmap/sockmap-ebpf.c
 )
 target_link_libraries(
   bs5
