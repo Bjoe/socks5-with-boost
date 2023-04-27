@@ -9,6 +9,8 @@
 #include <vector>
 #include <gsl/gsl>
 
+#include "options.hpp"
+
 namespace socks5 {
 
 struct SessionId {
@@ -23,7 +25,8 @@ public:
             std::string natAddress,
             std::shared_ptr<boost::asio::ip::tcp::socket> in_socket,
             SessionId session_id,
-            std::size_t buffer_size);
+            std::size_t buffer_size,
+            Options options);
     void start();
 
   private:
@@ -80,6 +83,7 @@ public:
     std::vector<uint8_t> bind_buf_{};
     std::uint8_t cmd_{};
     SessionId session_id_{};
+    Options options_{};
 };
 } // namespace socks5
 

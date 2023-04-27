@@ -12,6 +12,8 @@
 #include <linux/bpf.h>
 #include <fcntl.h> // to add splice()
 #include <linux/aio_abi.h> // to add iocb
+#include <errno.h>
+
 extern "C" {
   #include "sockmap/tbpf.h"
   #include "iosubmit.h"
@@ -40,7 +42,8 @@ Session::Session(boost::asio::io_context &io_context, int sock_map,
   std::string natAddress,
   std::shared_ptr<boost::asio::ip::tcp::socket> in_socket,
   SessionId session_id,
-  std::size_t buffer_size)
+  std::size_t buffer_size,
+  Options options)
   : io_context_(io_context),
     sock_map_(sock_map),
     in_socket_(std::move(in_socket)),
@@ -52,7 +55,8 @@ Session::Session(boost::asio::io_context &io_context, int sock_map,
     inn_buf_(buffer_size),
     out_buf_(buffer_size),
     bind_buf_(buffer_size),
-    session_id_(session_id)
+    session_id_(session_id),
+    options_(options)
 {
 }
 
@@ -424,10 +428,34 @@ void Session::write_socks5_response()
         {
         case 0x01: // CONNECT
         {
-          BOOST_LOG_TRIVIAL(info) << "Session id: " << session_id_.id << " SOCKS5 response send. Start tcp ...";
-          //read_client_tcp();
-          //read_server_tcp();
-          sockmap_relay();
+          switch(options_) {
+          case Options::TCP_RELAY:
+          {
+            BOOST_LOG_TRIVIAL(info) << "Session id: " << session_id_.id << " SOCKS5 response send. Start tcp_relay ...";
+            read_client_tcp();
+            read_server_tcp();
+          }
+          break;
+          case Options::SOCKMAP_RELAY:
+          {
+            BOOST_LOG_TRIVIAL(info) << "Session id: " << session_id_.id << " SOCKS5 response send. Start sockmap_relay ...";
+            sockmap_relay();
+          }
+          break;
+          case Options::IOSUBMIT_RELAY:
+          {
+            BOOST_LOG_TRIVIAL(info) << "Session id: " << session_id_.id << " SOCKS5 response send. Start iosubmit_relay ...";
+            iosubmit_relay();
+          }
+          break;
+          case Options::SPLICE_RELAY:
+          {
+            BOOST_LOG_TRIVIAL(info) << "Session id: " << session_id_.id << " SOCKS5 response send. Start pipe_relay ...";
+            splice_relay();
+          }
+          break;
+          }
+
           break;
         }
         case 0x02: // BIND
@@ -779,8 +807,18 @@ void Session::splice_relay()
   int cd = in_socket_->native_handle();
   int fd_out = out_socket_.native_handle();
 
+  int flags = fcntl(cd, F_GETFL, 0);
+  if (flags == -1) {
+    throw std::logic_error("Get fcntl() fails");
+  }
+  flags = flags & ~O_NONBLOCK;
+  int r = fcntl(cd, F_SETFL, flags);
+  if ( r < 0) {
+    throw std::logic_error("Set fcntl() fails");
+  }
+
   int pfd[2];
-  int r = pipe(pfd);
+  r = pipe(pfd);
   if (r < 0) {
     throw std::logic_error("Create pipe() fails");
   }
@@ -796,7 +834,7 @@ void Session::splice_relay()
     throw std::logic_error("Create fcntl() fails");
   }
 
-
+  // TODO Implement splice from fd_out -> cd
   while (1) {
     /* This is fairly unfair. We are doing 512KiB buffer
      * in one go, as opposed to naive approaches. Cheating. */
@@ -808,6 +846,7 @@ void Session::splice_relay()
         break;
       }
       if (errno == EAGAIN) {
+        std::cout << "[-] EAGAIN\n";
         break;
       }
       throw std::logic_error("Create pipe() fails");
@@ -818,7 +857,7 @@ void Session::splice_relay()
       break;
     }
 
-    ssize_t m = splice(pfd[0], nullptr, cd, nullptr, static_cast<std::size_t>(n), SPLICE_F_MOVE);
+    ssize_t m = splice(pfd[0], nullptr, fd_out, nullptr, static_cast<std::size_t>(n), SPLICE_F_MOVE);
     if (m < 0) {
       if (errno == ECONNRESET) {
         std::cerr << "[!] ECONNRESET on origin\n";

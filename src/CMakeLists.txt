@@ -4,6 +4,7 @@ add_executable(bs5)
 target_sources(bs5
     PRIVATE
     main.cpp
+    options.hpp
     server.cpp
     server.hpp
     session.cpp

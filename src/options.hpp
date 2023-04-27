@@ -1,0 +1,6 @@
+#ifndef OPTIONS_HPP
+#define OPTIONS_HPP
+
+enum class Options { TCP_RELAY, SOCKMAP_RELAY, SPLICE_RELAY, IOSUBMIT_RELAY };
+
+#endif // OPTIONS_HPP

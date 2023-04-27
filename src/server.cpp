@@ -9,13 +9,14 @@ namespace socks5 {
 Server::Server(boost::asio::io_context &io_context, int sock_map,
                const boost::asio::ip::tcp::endpoint& socks5Endpoint,
                std::string natAddress,
-               std::size_t buffer_size)
+               std::size_t buffer_size,
+               Options options)
     : io_context_(io_context),
     sock_map_(sock_map),
     acceptor_(io_context, socks5Endpoint),
     buffer_size_(buffer_size),
     nat_address_(std::move(natAddress)),
-    session_id_{}
+    options_(options)
 {}
 
 void Server::start()
@@ -28,7 +29,7 @@ void Server::start()
             if (!error_code)
             {
                 BOOST_LOG_TRIVIAL(trace) << "NEW Session id: " << ++session_id_.id  << " Accept connecton from " << client_socket->remote_endpoint() << " on " << acceptor_.local_endpoint();
-                std::make_shared<Session>(io_context_, sock_map_, nat_address_, client_socket, session_id_, buffer_size_)->start();
+                std::make_shared<Session>(io_context_, sock_map_, nat_address_, client_socket, session_id_, buffer_size_, options_)->start();
             } else {
                 BOOST_LOG_TRIVIAL(error) << "Error: accept connecton from " << client_socket->remote_endpoint() << " on " << acceptor_.local_endpoint() << " fails: " << error_code;
             }
