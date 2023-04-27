@@ -47,6 +47,8 @@ public:
     void read_bind_client(const std::shared_ptr<boost::asio::ip::tcp::socket> &client_socket);
     void interpret_udp_header();
     void sockmap_relay();
+    void splice_relay();
+    void iosubmit_relay();
     void read_client_udp();
     void read_server_udp();
     void read_client_tcp();

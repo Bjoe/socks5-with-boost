@@ -10,8 +10,11 @@
 #include <poll.h>
 #include <errno.h>
 #include <linux/bpf.h>
+#include <fcntl.h> // to add splice()
+#include <linux/aio_abi.h> // to add iocb
 extern "C" {
   #include "sockmap/tbpf.h"
+  #include "iosubmit.h"
 };
 
 constexpr std::uint8_t SOCKS_VERSION = 0x05;
@@ -702,7 +705,8 @@ void Session::read_server_udp()
     });
 }
 
-void Session::sockmap_relay() {
+void Session::sockmap_relay()
+{
   int fd = in_socket_->native_handle();
   int fd_out = out_socket_.native_handle();
   {
@@ -768,6 +772,143 @@ void Session::sockmap_relay() {
   }
   close(fd);
 
+}
+
+void Session::splice_relay()
+{
+  int cd = in_socket_->native_handle();
+  int fd_out = out_socket_.native_handle();
+
+  int pfd[2];
+  int r = pipe(pfd);
+  if (r < 0) {
+    throw std::logic_error("Create pipe() fails");
+  }
+
+  /* There is no "good" splice buffer size. Anecdotical evidence
+   * says that it should be no larger than 512KiB since this is
+   * the max we can expect realistically to fit into cpu
+   * cache. */
+#define SPLICE_MAX (512*1024)
+
+  r = fcntl(pfd[0], F_SETPIPE_SZ, SPLICE_MAX);
+  if (r < 0) {
+    throw std::logic_error("Create fcntl() fails");
+  }
+
+
+  while (1) {
+    /* This is fairly unfair. We are doing 512KiB buffer
+     * in one go, as opposed to naive approaches. Cheating. */
+    ssize_t n = splice(cd, nullptr, pfd[1], nullptr, static_cast<std::size_t>(SPLICE_MAX),
+      SPLICE_F_MOVE);
+    if (n < 0) {
+      if (errno == ECONNRESET) {
+        std::cerr << "[!] ECONNRESET\n";
+        break;
+      }
+      if (errno == EAGAIN) {
+        break;
+      }
+      throw std::logic_error("Create pipe() fails");
+    }
+    if (n == 0) {
+      /* On TCP socket zero means EOF */
+      std::cerr << "[-] edge side EOF\n";
+      break;
+    }
+
+    ssize_t m = splice(pfd[0], nullptr, cd, nullptr, static_cast<std::size_t>(n), SPLICE_F_MOVE);
+    if (m < 0) {
+      if (errno == ECONNRESET) {
+        std::cerr << "[!] ECONNRESET on origin\n";
+        break;
+      }
+      if (errno == EPIPE) {
+        std::cerr << "[!] EPIPE on origin\n";
+        break;
+      }
+      throw std::logic_error("send() fails");
+    }
+    if (m == 0) {
+      int err;
+      socklen_t err_len = sizeof(err);
+      int u = getsockopt(cd, SOL_SOCKET, SO_ERROR, &err,
+        &err_len);
+      if (u < 0) {
+         throw std::logic_error("getsockopt()");
+      }
+      errno = err;
+       throw std::logic_error("send()");
+    }
+    if (m != n) {
+       throw std::logic_error("expecting splice to block");
+    }
+  }
+}
+
+void Session::iosubmit_relay()
+{
+  std::uint32_t cd = static_cast<std::uint32_t>(in_socket_->native_handle());
+  int fd_out = out_socket_.native_handle();
+
+  aio_context_t ctx = {0};
+  int r = io_setup(8, &ctx);
+  if (r < 0) {
+    throw std::logic_error("io_setup()");
+  }
+
+#define BUFFER_SIZE (128 * 1024)
+  char buf[BUFFER_SIZE];
+
+  struct iocb cb[2];
+
+  cb[0].aio_fildes = cd;
+  cb[0].aio_lio_opcode = IOCB_CMD_PWRITE;
+  cb[0].aio_buf = (uint64_t)buf;
+  cb[0].aio_nbytes = 0;
+
+  cb[1].aio_fildes = cd;
+  cb[1].aio_lio_opcode = IOCB_CMD_PREAD;
+  cb[1].aio_buf = (uint64_t)buf;
+  cb[1].aio_nbytes = BUFFER_SIZE;
+
+  struct iocb *list_of_iocb[2] = {&cb[0], &cb[1]};
+
+  while (1) {
+    // io_submit on blocking network sockets will
+    // block. It will loop over sockets one by one,
+    // blocking on each operation. We abuse this to do
+    // write+read in one syscall. In first iteration the
+    // write is empty, we do write of size 0.
+    r = io_submit(ctx, 2, list_of_iocb);
+    if (r != 2) {
+        throw std::logic_error("io_submit()");
+    }
+
+    /* We must pick up the result, since we need to get
+     * the number of bytes read. */
+    struct io_event events[2] = {{0}};
+    r = io_getevents(ctx, 1, 2, events, NULL);
+    if (r < 0) {
+        throw std::logic_error("io_getevents()");
+    }
+    if (events[0].res < 0) {
+       errno = -events[0].res;
+       perror("io_submit(IOCB_CMD_PWRITE)");
+       break;
+    }
+    if (events[1].res < 0) {
+       errno = -events[1].res;
+       perror("io_submit(IOCB_CMD_PREAD)");
+       break;
+    }
+    if (events[1].res == 0) {
+       std::cerr << "[-] edge side EOF\n";
+       break;
+    }
+    cb[0].aio_nbytes = events[1].res;
+  }
 }
 
 void Session::read_client_tcp()

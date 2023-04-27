@@ -11,6 +11,8 @@ target_sources(bs5
 
     sockmap/tbpf.c
     sockmap/sockmap-ebpf.c
+
+    iosubmit.h
 )
 target_link_libraries(
   bs5
