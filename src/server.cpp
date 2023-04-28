@@ -29,7 +29,9 @@ void Server::start()
             if (!error_code)
             {
                 BOOST_LOG_TRIVIAL(trace) << "NEW Session id: " << ++session_id_.id  << " Accept connecton from " << client_socket->remote_endpoint() << " on " << acceptor_.local_endpoint();
-                std::make_shared<Session>(io_context_, sock_map_, nat_address_, client_socket, session_id_, buffer_size_, options_)->start();
+              auto session = std::make_shared<Session>(io_context_, sock_map_, nat_address_, client_socket, session_id_, buffer_size_, options_);
+              session->start();
+              sessions_.push_back(session);
             } else {
                 BOOST_LOG_TRIVIAL(error) << "Error: accept connecton from " << client_socket->remote_endpoint() << " on " << acceptor_.local_endpoint() << " fails: " << error_code;
             }
@@ -37,6 +39,14 @@ void Server::start()
             start();
         });
     BOOST_LOG_TRIVIAL(info) << "Socks5 server started on " << acceptor_.local_endpoint();
+}
+
+void Server::close()
+{
+    for(auto instance : sessions_) {
+      instance->closeSockets();
+    }
+    sessions_.clear();
 }
 
 } // namespace socks5

@@ -29,6 +29,9 @@ public:
             Options options);
     void start();
 
+    void closeSockets();
+
+    // TODO fix leakings add move semantic
   private:
 
     void read_socks5_handshake();

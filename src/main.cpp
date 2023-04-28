@@ -155,6 +155,11 @@ int main(int argc, char* argv[])
     socks5::Server server(io_context, sock_map, socks5Endpoint, natAddress, buffer_size, options);
     server.start();
 
+    boost::asio::signal_set signalsUser{io_context, SIGUSR1};
+    signals.async_wait([&server](const boost::system::error_code&, const int&){
+      server.close();
+    });
+
     io_context.run();
   }
   catch (std::exception& e)

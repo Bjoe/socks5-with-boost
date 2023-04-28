@@ -65,6 +65,15 @@ void Session::start()
   read_socks5_handshake();
 }
 
+void Session::closeSockets()
+{
+  bind_acceptor_->close();
+  in_socket_->close();
+  out_socket_.close();
+  in_udp_sock_->close();
+  nat_udp_socket_->close();
+}
+
 /*
 The client connects to the server, and sends a version
 identifier/method selection message:

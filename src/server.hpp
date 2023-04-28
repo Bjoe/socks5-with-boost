@@ -2,6 +2,8 @@
 #define SOCKS5_SERVER_HPP
 
 #include <string>
+#include <vector>
+#include <memory>
 #include <boost/asio.hpp>
 #include "session.hpp"
 #include "options.hpp"
@@ -20,6 +22,7 @@ public:
 
     void start();
 
+    void close();
 private:
     boost::asio::io_context& io_context_;
     int sock_map_{};
@@ -28,6 +31,7 @@ private:
     std::string nat_address_{};
     Options options_{};
     SessionId session_id_{};
+    std::vector<std::shared_ptr<Session>> sessions_{};
 };
 
 } // namespace socks5
