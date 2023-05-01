@@ -67,6 +67,7 @@ void Session::start()
 
 void Session::closeSockets()
 {
+  BOOST_LOG_TRIVIAL(info) << "Closing sockets ...";
   bind_acceptor_->close();
   in_socket_->close();
   out_socket_.close();
@@ -851,29 +852,29 @@ void Session::splice_relay()
       SPLICE_F_MOVE);
     if (n < 0) {
       if (errno == ECONNRESET) {
-        std::cerr << "[!] ECONNRESET\n";
+        BOOST_LOG_TRIVIAL(error) << "[!] ECONNRESET\n";
         break;
       }
       if (errno == EAGAIN) {
-        std::cout << "[-] EAGAIN\n";
+        BOOST_LOG_TRIVIAL(error) << "[-] EAGAIN\n";
         break;
       }
       throw std::logic_error("Create pipe() fails");
     }
     if (n == 0) {
       /* On TCP socket zero means EOF */
-      std::cerr << "[-] edge side EOF\n";
+      BOOST_LOG_TRIVIAL(error) << "[-] edge side EOF\n";
       break;
     }
 
     ssize_t m = splice(pfd[0], nullptr, fd_out, nullptr, static_cast<std::size_t>(n), SPLICE_F_MOVE);
     if (m < 0) {
       if (errno == ECONNRESET) {
-        std::cerr << "[!] ECONNRESET on origin\n";
+        BOOST_LOG_TRIVIAL(error) << "[!] ECONNRESET on origin\n";
         break;
       }
       if (errno == EPIPE) {
-        std::cerr << "[!] EPIPE on origin\n";
+        BOOST_LOG_TRIVIAL(error) << "[!] EPIPE on origin\n";
         break;
       }
       throw std::logic_error("send() fails");
@@ -933,6 +934,7 @@ void Session::iosubmit_relay()
 
   struct iocb *list_of_iocb[2] = {&cb[0], &cb[1]};
 
+  // TODO Implement io_submit from fd_out -> cd
   while (1) {
     // io_submit on blocking network sockets will
     // block. It will loop over sockets one by one,
@@ -953,16 +955,16 @@ void Session::iosubmit_relay()
     }
     if (events[0].res < 0) {
        errno = -events[0].res;
-       perror("io_submit(IOCB_CMD_PWRITE)");
+       BOOST_LOG_TRIVIAL(error) << "io_submit(IOCB_CMD_PWRITE): " << strerror(errno);
        break;
     }
     if (events[1].res < 0) {
        errno = -events[1].res;
-       perror("io_submit(IOCB_CMD_PREAD)");
+       BOOST_LOG_TRIVIAL(error) << "io_submit(IOCB_CMD_PREAD): " << strerror(errno);
        break;
     }
     if (events[1].res == 0) {
-       std::cerr << "[-] edge side EOF\n";
+       BOOST_LOG_TRIVIAL(error) << "[-] edge side EOF\n";
        break;
     }
     cb[0].aio_nbytes = events[1].res;
