@@ -900,8 +900,18 @@ void Session::iosubmit_relay()
   std::uint32_t cd = static_cast<std::uint32_t>(in_socket_->native_handle());
   int fd_out = out_socket_.native_handle();
 
+  int flags = fcntl(cd, F_GETFL, 0);
+  if (flags == -1) {
+    throw std::logic_error("Get fcntl() fails");
+  }
+  flags = flags & ~O_NONBLOCK;
+  int r = fcntl(cd, F_SETFL, flags);
+  if ( r < 0) {
+    throw std::logic_error("Set fcntl() fails");
+  }
+
   aio_context_t ctx = {0};
-  int r = io_setup(8, &ctx);
+  r = io_setup(8, &ctx);
   if (r < 0) {
     throw std::logic_error("io_setup()");
   }
@@ -911,7 +921,7 @@ void Session::iosubmit_relay()
 
   struct iocb cb[2];
 
-  cb[0].aio_fildes = cd;
+  cb[0].aio_fildes = fd_out;
   cb[0].aio_lio_opcode = IOCB_CMD_PWRITE;
   cb[0].aio_buf = (uint64_t)buf;
   cb[0].aio_nbytes = 0;
