@@ -10,6 +10,7 @@ target_sources(bs5
     session.cpp
     session.hpp
 
+    sockmap/tbpf.h
     sockmap/tbpf.c
     sockmap/sockmap-ebpf.c
 

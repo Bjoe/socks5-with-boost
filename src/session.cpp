@@ -16,7 +16,7 @@
 
 extern "C" {
   #include "sockmap/tbpf.h"
-  #include "iosubmit.h"
+  #include "iosubmit.h" // this implementation can't crosscompile, use libaio -> https://pagure.io/libaio
 };
 
 constexpr std::uint8_t SOCKS_VERSION = 0x05;
@@ -803,7 +803,7 @@ void Session::sockmap_relay()
   r = tbpf_map_delete_elem(sock_map_, &idx);
   if (r != 0) {
     if (errno == EINVAL) {
-      std::cerr << "[-] Removing closed sock from sockmap\n";
+      BOOST_LOG_TRIVIAL(error) << "[-] Removing closed sock from sockmap\n";
     } else {
       throw std::logic_error("bpf(MAP_DELETE_ELEM, sock_map)");
     }
